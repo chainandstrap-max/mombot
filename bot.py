@@ -13,6 +13,7 @@ DAILY_TARGET = 90
 
 app = Flask(__name__)
 cl = Client()
+cl.delay_range = [1, 3]
 SESSION_FILE = "session.json"
 MOMS_FILE = "moms.csv"
 COUNT_FILE = "count.json"
