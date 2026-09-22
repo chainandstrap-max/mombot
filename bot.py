@@ -1,102 +1,154 @@
-import os, random, time, re, requests, csv, io
+import os, csv, json, time, random
 from datetime import datetime
+from threading import Thread
 from flask import Flask
-import threading
+import requests
 from instagrapi import Client
 
+# ========== AAPKI SHEET LINK YAHAN ADD HAI ==========
+SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQp86SZx0TWZLNKeRNlvAla9YKKoeT6Tu8J5A6C6zSV3zNaBTVn1UrZsU0sRDrKOWJKBWiU-zJeyhdH/pub?output=csv"
+# =====================================================
+
+USERNAME = os.getenv("IG_USERNAME")
+PASSWORD = os.getenv("IG_PASSWORD")
+DAILY_TARGET = 90 # Max 90 per day
+
 app = Flask(__name__)
+cl = Client()
+SESSION_FILE = "session.json"
+MOMS_FILE = "moms.csv"
+COUNT_FILE = "count.json"
+
+def load_pages():
+    try:
+        r = requests.get(SHEET_URL, timeout=20)
+        pages = [row[0].strip().replace("@","") for row in csv.reader(r.text.splitlines()) if row and row[0].strip()]
+        if len(pages) >= 3:
+            return pages
+    except:
+        pass
+    return ["cindysstyle", "imagessalonoc", "3sistersarchive"]
+
+def get_today_count():
+    today = datetime.now().strftime("%Y-%m-%d")
+    if os.path.exists(COUNT_FILE):
+        try:
+            data = json.load(open(COUNT_FILE))
+            if data.get("date") == today:
+                return data.get("count", 0)
+        except:
+            pass
+    json.dump({"date": today, "count": 0}, open(COUNT_FILE,"w"))
+    return 0
+
+def add_count():
+    today = datetime.now().strftime("%Y-%m-%d")
+    c = get_today_count() + 1
+    json.dump({"date": today, "count": c}, open(COUNT_FILE,"w"))
+    return c
+
+def login():
+    if os.path.exists(SESSION_FILE):
+        try:
+            cl.load_settings(SESSION_FILE)
+            cl.login(USERNAME, PASSWORD)
+            print("Login with session OK")
+            return True
+        except:
+            pass
+    try:
+        cl.login(USERNAME, PASSWORD)
+        cl.dump_settings(SESSION_FILE)
+        print("New login OK")
+        return True
+    except Exception as e:
+        print(f"Login fail: {e}")
+        return False
+
+def is_mom(bio):
+    if not bio: return False
+    bio = bio.lower()
+    keywords = [  "mom", "mama", "mum", "mummy", 
+        "mother", "mommy", "momma",
+        "mom of", "mama of", "mom to", "mama to",
+        "mom of 2", "mom of 3", "mom of 4",
+        "boy mom", "girl mom", "dog mom", "cat mom", "fur mom",
+        "toddler mom", "baby mama", "first time mom", "ftm",
+        "mother of", "proud mom", "blessed mom", "wife and mom",
+        "mom life", "momlove", "mompreneur"]
+    return any(k in bio for k in keywords)
+
+def bot_loop():
+    if not login():
+        return
+    if not os.path.exists(MOMS_FILE):
+        open(MOMS_FILE, "w").write("username,full_name,bio,date,source_page\n")
+
+    already_followed = set()
+    if os.path.exists(MOMS_FILE):
+        try:
+            already_followed = set(row[0] for row in csv.reader(open(MOMS_FILE)) if row)
+        except:
+            pass
+
+    while True:
+        today_count = get_today_count()
+        if today_count >= DAILY_TARGET:
+            print(f"Target {DAILY_TARGET} done today. Sleeping 1 hour...")
+            time.sleep(3600)
+            continue
+
+        PAGES = load_pages()
+        day_num = datetime.now().timetuple().tm_yday
+
+        # DIN ME 3 PAGES CHECK
+        todays_pages = [
+            PAGES[(day_num*3) % len(PAGES)],
+            PAGES[(day_num*3+1) % len(PAGES)],
+            PAGES[(day_num*3+2) % len(PAGES)]
+        ]
+        print(f"--- TODAY 3 PAGES: {todays_pages} | Done: {today_count}/{DAILY_TARGET} ---")
+
+        for page in todays_pages:
+            if get_today_count() >= DAILY_TARGET:
+                break
+            try:
+                print(f"Checking page: {page}")
+                uid = cl.user_id_from_username(page)
+                medias = cl.user_medias(uid, 5) # Har page ki 5 posts
+                for media in medias:
+                    if get_today_count() >= DAILY_TARGET:
+                        break
+                    likers = cl.media_likers(media.id)
+                    random.shuffle(likers)
+                    for user in likers:
+                        if get_today_count() >= DAILY_TARGET:
+                            break
+                        if user.username in already_followed:
+                            continue
+                        try:
+                            info = cl.user_info(user.pk)
+                            if is_mom(info.biography):
+                                cl.user_follow(user.pk)
+                                open(MOMS_FILE, "a", encoding="utf-8").write(f'"{info.username}","{info.full_name}","{info.biography[:50]}","{datetime.now()}","{page}"\n')
+                                already_followed.add(info.username)
+                                c = add_count()
+                                gap = random.randint(8*60, 15*60) # 8-15 min gap
+                                print(f"Followed {info.username} ({c}/{DAILY_TARGET}) - Next in {gap//60} min")
+                                time.sleep(gap)
+                        except Exception as e:
+                            print(f"Error: {e}")
+                            time.sleep(60)
+            except Exception as e:
+                print(f"Page {page} error: {e}")
+                time.sleep(60)
+
+        time.sleep(300)
+
 @app.route('/')
 def home():
-    return "Mom Bot - Google Sheet Live Mode"
+    return f"Bot Running! Today: {get_today_count()}/{DAILY_TARGET}"
 
-def run_flask():
-    app.run(host='0.0.0.0', port=10000)
-threading.Thread(target=run_flask).start()
-
-# --- GOOGLE SHEET SE LIVE PAGES ---
-SHEET_URL = os.environ.get("SHEET_URL") # Render me ye variable dalna hai
-
-def get_username_from_url(url):
-    url = str(url).strip()
-    if not url or url.lower() == 'page': return None
-    if "instagram.com" in url:
-        m = re.search(r"instagram\.com/([^/?\s]+)", url)
-        if m: return m.group(1)
-    return url.replace("@","").strip()
-
-def load_pages_from_google_sheet():
-    try:
-        print("Google Sheet se pages load ho rahe hain...")
-        r = requests.get(SHEET_URL, timeout=10)
-        r.raise_for_status()
-
-        pages = []
-        f = io.StringIO(r.text)
-        reader = csv.reader(f)
-        for row in reader:
-            if row and row[0]:
-                u = get_username_from_url(row[0])
-                if u and u.lower()!= 'page':
-                    pages.append(u)
-
-        pages = list(dict.fromkeys(pages)) # duplicate remove
-        print(f"Sheet se {len(pages)} pages mile: {pages[:3]}...")
-        return pages
-    except Exception as e:
-        print(f"Sheet Error: {e}")
-        return ["momcozy", "fridamom", "scarymommy"]
-
-# --- LOGIN ---
-cl = Client()
-cl.delay_range = [2, 5]
-if os.path.exists("session.json"):
-    cl.load_settings("session.json")
-elif os.environ.get("SESSION_DATA"):
-    with open("session.json", "w") as f:
-        f.write(os.environ.get("SESSION_DATA"))
-    cl.load_settings("session.json")
-
-cl.login(os.environ.get("IG_USER"), os.environ.get("IG_PASS"))
-print("Login Success!")
-
-def is_target_mom(user_id):
-    try:
-        info = cl.user_info(user_id)
-        if not info.is_private: return False
-        if info.follower_count > 700: return False
-        bio = (info.biography + " " + info.full_name).lower()
-        if not any(k in bio for k in ["mom", "mama", "mother", "wife", "kids", "baby"]):
-            return False
-        if info.media_count < 2: return False
-        return True
-    except: return False
-
-# --- LOOP ---
-while True:
-    ALL_PAGES = load_pages_from_google_sheet()
-    today_day = datetime.now().timetuple().tm_yday
-    todays_page = ALL_PAGES[today_day % len(ALL_PAGES)]
-
-    now = datetime.now().hour
-    if 21 <= now or now <= 2:
-        print(f"==== AAJ KA PAGE (Sheet se): {todays_page} | Total: {len(ALL_PAGES)} ====")
-        try:
-            user_id = cl.user_id_from_username(todays_page)
-            medias = cl.user_medias(user_id, 3)
-            for media in medias:
-                likers = cl.media_likers(media.id)
-                random.shuffle(likers)
-                for user in likers:
-                    if is_target_mom(user.pk):
-                        try:
-                            cl.user_follow(user.pk)
-                            print(f"FOLLOWED: {user.username}")
-                            time.sleep(random.randint(480, 900))
-                        except:
-                            time.sleep(300)
-        except Exception as e:
-            print(f"Error: {e}")
-            time.sleep(600)
-    else:
-        print("Din hai USA me, 1 ghante baad Sheet se naya check karunga...")
-        time.sleep(3600)
+if __name__ == "__main__":
+    Thread(target=bot_loop, daemon=True).start()
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
