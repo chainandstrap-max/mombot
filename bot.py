@@ -4,6 +4,7 @@ from threading import Thread
 from flask import Flask
 import requests
 from instagrapi import Client
+from instagrapi.types import DeviceOrUserAgent
 
 SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQp86SZx0TWZLNKeRNlvAla9YKKoeT6Tu8J5A6C6zSV3zNaBTVn1UrZsU0sRDrKOWJKBWiU-zJeyhdH/pub?output=csv"
 
@@ -13,6 +14,18 @@ DAILY_TARGET = 90
 
 app = Flask(__name__)
 cl = Client()
+cl.set_device(DeviceOrUserAgent(
+    app_version="275.0.0.27.98",
+    android_version=26,
+    android_release="8.0.0",
+    dpi="480dpi",
+    resolution="1080x1920",
+    manufacturer="OnePlus",
+    device="ONEPLUS A3003",
+    model="OnePlus3",
+    cpu="qcom",
+    version_code="200000",
+))
 cl.delay_range = [1, 3]
 SESSION_FILE = "session.json"
 MOMS_FILE = "moms.csv"
