@@ -1,7 +1,6 @@
 import os, time, random, threading
 from flask import Flask
 from instagrapi import Client
-from instagrapi.types import DeviceOrUserAgent
 
 USERNAME = os.getenv("IG_USERNAME")
 PASSWORD = os.getenv("IG_PASSWORD")
@@ -17,28 +16,25 @@ def bot_loop():
         try:
             print("Starting Container - Trying Login...", flush=True)
             cl = Client()
-            # --- YAHI FIX HAI ---
-            cl.set_device(DeviceOrUserAgent(
-                app_version="314.0.0.49.146",
-                android_version=33,
-                android_release="13.0",
-                dpi="420dpi",
-                resolution="1080x2400",
-                manufacturer="samsung",
-                device="SM-G998B",
-                model="Galaxy S21 Ultra",
-                cpu="exynos2100",
-                version_code="314002146"
-            ))
+            # --- NAYA FIX ---
+            cl.set_device({
+                "app_version": "314.0.0.49.146",
+                "android_version": 33,
+                "android_release": "13.0",
+                "dpi": "420dpi",
+                "resolution": "1080x2400",
+                "manufacturer": "samsung",
+                "device": "SM-G998B",
+                "model": "Galaxy S21 Ultra",
+                "cpu": "exynos2100",
+                "version_code": "314002146"
+            })
             cl.set_locale("en_US")
             cl.set_country_code(1)
-            cl.set_timezone_offset(-5*3600)
             
             cl.login(USERNAME, PASSWORD)
             print("New login OK - Bot Started", flush=True)
 
-            # Yahan aapka purana follow wala logic shuru hoga
-            # Abhi test ke liye sirf login check kar rahe hain
             while True:
                 print("--- Bot is Alive and Logged In ---", flush=True)
                 time.sleep(300)
@@ -51,3 +47,4 @@ threading.Thread(target=bot_loop, daemon=True).start()
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8080)
+    
