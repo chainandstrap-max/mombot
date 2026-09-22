@@ -1,2 +1,4 @@
-instagrapi
 Flask
+requests
+instagrapi
+gunicorn
