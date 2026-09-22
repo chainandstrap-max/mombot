@@ -5,13 +5,11 @@ from flask import Flask
 import requests
 from instagrapi import Client
 
-# ========== AAPKI SHEET LINK YAHAN ADD HAI ==========
 SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQp86SZx0TWZLNKeRNlvAla9YKKoeT6Tu8J5A6C6zSV3zNaBTVn1UrZsU0sRDrKOWJKBWiU-zJeyhdH/pub?output=csv"
-# =====================================================
 
 USERNAME = os.getenv("IG_USERNAME")
 PASSWORD = os.getenv("IG_PASSWORD")
-DAILY_TARGET = 90 # Max 90 per day
+DAILY_TARGET = 90
 
 app = Flask(__name__)
 cl = Client()
@@ -48,14 +46,24 @@ def add_count():
     return c
 
 def login():
+    # NEW: SESSION_JSON variable se load
+    sess_data = os.getenv("SESSION_JSON")
+    if sess_data:
+        try:
+            open(SESSION_FILE, "w", encoding="utf-8").write(sess_data)
+            print("SESSION_JSON variable loaded")
+        except Exception as e:
+            print(f"SESSION_JSON write error: {e}")
+
     if os.path.exists(SESSION_FILE):
         try:
             cl.load_settings(SESSION_FILE)
             cl.login(USERNAME, PASSWORD)
             print("Login with session OK")
             return True
-        except:
-            pass
+        except Exception as e:
+            print(f"Session login fail: {e}")
+
     try:
         cl.login(USERNAME, PASSWORD)
         cl.dump_settings(SESSION_FILE)
@@ -68,14 +76,7 @@ def login():
 def is_mom(bio):
     if not bio: return False
     bio = bio.lower()
-    keywords = [  "mom", "mama", "mum", "mummy", 
-        "mother", "mommy", "momma",
-        "mom of", "mama of", "mom to", "mama to",
-        "mom of 2", "mom of 3", "mom of 4",
-        "boy mom", "girl mom", "dog mom", "cat mom", "fur mom",
-        "toddler mom", "baby mama", "first time mom", "ftm",
-        "mother of", "proud mom", "blessed mom", "wife and mom",
-        "mom life", "momlove", "mompreneur"]
+    keywords = ["mom", "mama", "mum", "mummy", "mother", "mommy", "momma", "mom of", "mama of", "mom to", "mama to", "boy mom", "girl mom", "dog mom", "toddler mom", "mother of", "mom life"]
     return any(k in bio for k in keywords)
 
 def bot_loop():
@@ -83,39 +84,29 @@ def bot_loop():
         return
     if not os.path.exists(MOMS_FILE):
         open(MOMS_FILE, "w").write("username,full_name,bio,date,source_page\n")
-
     already_followed = set()
     if os.path.exists(MOMS_FILE):
         try:
             already_followed = set(row[0] for row in csv.reader(open(MOMS_FILE)) if row)
         except:
             pass
-
     while True:
         today_count = get_today_count()
         if today_count >= DAILY_TARGET:
             print(f"Target {DAILY_TARGET} done today. Sleeping 1 hour...")
             time.sleep(3600)
             continue
-
         PAGES = load_pages()
         day_num = datetime.now().timetuple().tm_yday
-
-        # DIN ME 3 PAGES CHECK
-        todays_pages = [
-            PAGES[(day_num*3) % len(PAGES)],
-            PAGES[(day_num*3+1) % len(PAGES)],
-            PAGES[(day_num*3+2) % len(PAGES)]
-        ]
+        todays_pages = [PAGES[(day_num*3) % len(PAGES)], PAGES[(day_num*3+1) % len(PAGES)], PAGES[(day_num*3+2) % len(PAGES)]]
         print(f"--- TODAY 3 PAGES: {todays_pages} | Done: {today_count}/{DAILY_TARGET} ---")
-
         for page in todays_pages:
             if get_today_count() >= DAILY_TARGET:
                 break
             try:
                 print(f"Checking page: {page}")
                 uid = cl.user_id_from_username(page)
-                medias = cl.user_medias(uid, 5) # Har page ki 5 posts
+                medias = cl.user_medias(uid, 5)
                 for media in medias:
                     if get_today_count() >= DAILY_TARGET:
                         break
@@ -133,7 +124,7 @@ def bot_loop():
                                 open(MOMS_FILE, "a", encoding="utf-8").write(f'"{info.username}","{info.full_name}","{info.biography[:50]}","{datetime.now()}","{page}"\n')
                                 already_followed.add(info.username)
                                 c = add_count()
-                                gap = random.randint(8*60, 15*60) # 8-15 min gap
+                                gap = random.randint(8*60, 15*60)
                                 print(f"Followed {info.username} ({c}/{DAILY_TARGET}) - Next in {gap//60} min")
                                 time.sleep(gap)
                         except Exception as e:
@@ -142,7 +133,6 @@ def bot_loop():
             except Exception as e:
                 print(f"Page {page} error: {e}")
                 time.sleep(60)
-
         time.sleep(300)
 
 @app.route('/')
