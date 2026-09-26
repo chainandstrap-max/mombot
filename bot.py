@@ -1,10 +1,10 @@
 import os
 import time
-import random
 import threading
 from flask import Flask
 from instagrapi import Client
 
+# Load environment variables for security
 USERNAME = os.getenv("IG_USERNAME")
 PASSWORD = os.getenv("IG_PASSWORD")
 SESSION_FILE = "session.json"
@@ -13,54 +13,52 @@ app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "Mombot is Running!"
+    return "Mombot is Running and Active!"
 
 def bot_loop():
     while True:
         try:
-            print("Starting Container - Initializing Instagram Client...", flush=True)
+            print("Initializing Instagram Client...", flush=True)
             cl = Client()
             
-            # Updated modern device profile to bypass version deprecation
-            cl.set_device({
-                "app_version": "330.0.0.38.109",
-                "android_version": 33,
-                "android_release": "13.0",
-                "dpi": "420dpi",
-                "resolution": "1080x2400",
-                "manufacturer": "samsung",
-                "device": "SM-S911B",
-                "model": "Galaxy S23",
-                "cpu": "qcom",
-                "version_code": "525381090"
-            })
+            # Use instagrapi's default modern client configuration 
+            # (Avoids hardcoding old app versions that trigger the 'out of date' error)
             cl.set_locale("en_US")
             cl.set_country_code(1)
             
-            # Load existing session if available to avoid repeated full logins
+            # Load session if it exists to bypass direct password logins
             if os.path.exists(SESSION_FILE):
-                print("Loading saved session...", flush=True)
+                print("Loading existing session from session.json...", flush=True)
                 cl.load_settings(SESSION_FILE)
             
-            # Attempt login (or verify session)
+            # Log in using credentials or validate the loaded session
+            print("Logging in / validating session...", flush=True)
             cl.login(USERNAME, PASSWORD)
             
-            # Save session for future container restarts
+            # Save/update session data
             cl.dump_settings(SESSION_FILE)
-            print("New login OK - Bot Started", flush=True)
+            print("Successfully logged in - Bot loop started!", flush=True)
 
+            # Main automation loop (put your bot tasks here)
             while True:
-                print("--- Bot is Alive and Logged In ---", flush=True)
-                time.sleep(300)
+                print("--- Mombot is active and running tasks ---", flush=True)
+                
+                # TODO: Add your custom automation logic here (e.g., check DMs, fetch posts)
+                
+                time.sleep(300) # Wait 5 minutes between loops
 
         except Exception as e:
-            print(f"Login fail: {e}", flush=True)
-            # If session file is broken/expired due to the error, delete it for a fresh retry
+            print(f"Bot error encountered: {e}", flush=True)
+            # If the session expired or threw an error, clean it up for the next retry
             if os.path.exists(SESSION_FILE):
                 os.remove(SESSION_FILE)
+            print("Retrying connection in 60 seconds...", flush=True)
             time.sleep(60)
 
+# Run the bot logic in a background thread so the Flask server can bind to the port immediately
 threading.Thread(target=bot_loop, daemon=True).start()
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8080)
+    # Railway/Cloud services require binding to 0.0.0.0 and port 8080 (or PORT env variable)
+    port = int(os.getenv("PORT", 8080))
+    app.run(host="0.0.0.0", port=port)
